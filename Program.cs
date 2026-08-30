@@ -4,6 +4,8 @@ namespace MHRise_Save_Reader;
 
 internal static class Program
 {
+    private const int HuntersGoldShieldTarget = 1000;
+
     public static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
@@ -42,9 +44,11 @@ internal static class Program
 
             var parser = new MonsterKillCounter();
             var killCounts = parser.GetMasterRankKillCounts(saveData);
+            var totalKills = killCounts.Sum(entry => entry.KillCount);
+            var remainingKills = Math.Max(0, HuntersGoldShieldTarget - totalKills);
 
             Console.WriteLine();
-            Console.WriteLine($"Master rank monster kill counts from: {Path.GetFullPath(savePath)}");
+            Console.WriteLine($"Master Rank large monster kill counts from: {Path.GetFullPath(savePath)}");
             Console.WriteLine(new string('-', 56));
             Console.WriteLine($"{"Monster",-38}Kills");
             Console.WriteLine(new string('-', 56));
@@ -55,7 +59,12 @@ internal static class Program
             }
 
             Console.WriteLine(new string('-', 56));
-            Console.WriteLine($"{"Total",-38}{killCounts.Sum(entry => entry.KillCount),5}");
+            Console.WriteLine($"{"Total",-38}{totalKills,5}");
+            Console.WriteLine();
+            Console.WriteLine($"Hunter's Gold Shield progress: {totalKills}/{HuntersGoldShieldTarget}");
+            Console.WriteLine(remainingKills == 0
+                ? "Hunter's Gold Shield requirement met."
+                : $"{remainingKills} more large monster hunts needed.");
             return 0;
         }
         catch (ArgumentException exception)
