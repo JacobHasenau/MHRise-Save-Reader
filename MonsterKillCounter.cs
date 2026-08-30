@@ -213,6 +213,7 @@ internal sealed class MonsterKillCounter
             var nonZeroValues = values.Count(value => value > 0 && value <= 100_000);
             var giganticValues = values.Count(value => value > 10_000_000);
             var totalValues = values.Aggregate(0UL, (total, value) => total + value);
+            // Keep the original order here so ID-like columns get penalized for simple +1 sequences.
             var consecutivePlusOneSteps = values.Zip(values.Skip(1), (left, right) => right == left + 1 ? 1 : 0).Sum();
             values.Sort();
             var percentile90 = values[(int)Math.Floor((values.Count - 1) * 0.9)];

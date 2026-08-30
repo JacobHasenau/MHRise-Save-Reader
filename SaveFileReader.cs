@@ -196,6 +196,7 @@ internal static class CitrusDecryptor
             patch[index] = (byte)(key[index] ^ iv[index]);
         }
 
+        // The Citrus post-processing patch is applied to every block after the first 16-byte block.
         for (var offset = 16; offset < buffer.Length; offset += 16)
         {
             for (var index = 0; index < 16; index++)
