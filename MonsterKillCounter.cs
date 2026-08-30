@@ -85,6 +85,7 @@ internal sealed class MonsterKillCounter
     ];
 
     private static readonly int[] CandidateStructSizes = [8, 12, 16, 20, 24, 28, 32];
+    private static readonly byte[] FirstMonsterIdBytes = BitConverter.GetBytes(LargeMonsters[0].MonsterTypeId);
 
     public IReadOnlyList<MonsterKillCount> GetMasterRankKillCounts(byte[] saveData)
     {
@@ -109,11 +110,17 @@ internal sealed class MonsterKillCounter
     private static MonsterTableLayout? FindMonsterTable(byte[] saveData)
     {
         MonsterTableLayout? bestLayout = null;
+        var candidateOffsets = FindCandidateOffsets(saveData).ToArray();
 
         foreach (var structSize in CandidateStructSizes)
         {
-            for (var startOffset = 0; startOffset <= saveData.Length - (structSize * 12); startOffset += 4)
+            foreach (var startOffset in candidateOffsets)
             {
+                if (startOffset > saveData.Length - (structSize * 12))
+                {
+                    continue;
+                }
+
                 var matchedMonsters = new List<MonsterDefinition>();
                 for (var monsterIndex = 0; monsterIndex < LargeMonsters.Length; monsterIndex++)
                 {
@@ -161,6 +168,20 @@ internal sealed class MonsterKillCounter
         return bestLayout;
     }
 
+    private static IEnumerable<int> FindCandidateOffsets(byte[] saveData)
+    {
+        for (var startOffset = 0; startOffset <= saveData.Length - FirstMonsterIdBytes.Length; startOffset += 4)
+        {
+            if (saveData[startOffset] == FirstMonsterIdBytes[0]
+                && saveData[startOffset + 1] == FirstMonsterIdBytes[1]
+                && saveData[startOffset + 2] == FirstMonsterIdBytes[2]
+                && saveData[startOffset + 3] == FirstMonsterIdBytes[3])
+            {
+                yield return startOffset;
+            }
+        }
+    }
+
     private static int? SelectCountOffset(byte[] saveData, int startOffset, int structSize, int monsterCount)
     {
         int? bestOffset = null;
@@ -192,8 +213,9 @@ internal sealed class MonsterKillCounter
             var nonZeroValues = values.Count(value => value > 0 && value <= 100_000);
             var giganticValues = values.Count(value => value > 10_000_000);
             var totalValues = values.Aggregate(0UL, (total, value) => total + value);
-            var percentile90 = values.Order().ElementAt((int)Math.Floor((values.Count - 1) * 0.9));
             var consecutivePlusOneSteps = values.Zip(values.Skip(1), (left, right) => right == left + 1 ? 1 : 0).Sum();
+            values.Sort();
+            var percentile90 = values[(int)Math.Floor((values.Count - 1) * 0.9)];
 
             var score = (plausibleValues * 4.0)
                 + (nonZeroValues * 2.0)

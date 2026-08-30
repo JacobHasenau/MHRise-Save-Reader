@@ -77,21 +77,21 @@ internal static class CitrusDecryptor
             var block = encryptedSave.AsSpan(blockIndex * BlockSize, BlockSize);
             var outerKey = block[..16].ToArray();
             var outerIv = block.Slice(16, 16).ToArray();
-            var encryptedKeys = block.Slice(KeyIvSize, EncryptedKeysSize).ToArray();
-            AesDecryptInPlace(encryptedKeys, outerKey, outerIv);
+            var keyBlob = block.Slice(KeyIvSize, EncryptedKeysSize).ToArray();
+            AesDecryptInPlace(keyBlob, outerKey, outerIv);
 
-            var (dataKey, dataIv) = DecryptInnerKeys(encryptedKeys, steamId, curve);
-            var encryptedData = block.Slice(KeyIvSize + EncryptedKeysSize, EncryptedDataSize).ToArray();
-            AesDecryptInPlace(encryptedData, dataKey, dataIv);
+            var (dataKey, dataIv) = DecryptInnerKeys(keyBlob, steamId, curve);
+            var decryptedBlock = block.Slice(KeyIvSize + EncryptedKeysSize, EncryptedDataSize).ToArray();
+            AesDecryptInPlace(decryptedBlock, dataKey, dataIv);
 
             var expectedChecksum = block.Slice(KeyIvSize + EncryptedKeysSize + EncryptedDataSize, HashSize);
-            var actualChecksum = CalculateChecksum(outerKey, outerIv, encryptedKeys, encryptedData);
+            var actualChecksum = CalculateChecksum(outerKey, outerIv, keyBlob, decryptedBlock);
             if (!actualChecksum.AsSpan().SequenceEqual(expectedChecksum))
             {
                 throw new InvalidDataException("The save checksum did not match after decryption. Verify the SteamID64 and curve index.");
             }
 
-            Buffer.BlockCopy(encryptedData, 0, decrypted, blockIndex * EncryptedDataSize, EncryptedDataSize);
+            Buffer.BlockCopy(decryptedBlock, 0, decrypted, blockIndex * EncryptedDataSize, EncryptedDataSize);
         }
 
         return decrypted;
@@ -111,8 +111,8 @@ internal static class CitrusDecryptor
 
         var outerKey = firstBlock[..16].ToArray();
         var outerIv = firstBlock.Slice(16, 16).ToArray();
-        var encryptedKeys = firstBlock.Slice(KeyIvSize, EncryptedKeysSize).ToArray();
-        AesDecryptInPlace(encryptedKeys, outerKey, outerIv);
+        var keyBlob = firstBlock.Slice(KeyIvSize, EncryptedKeysSize).ToArray();
+        AesDecryptInPlace(keyBlob, outerKey, outerIv);
         var encryptedData = firstBlock.Slice(KeyIvSize + EncryptedKeysSize, EncryptedDataSize).ToArray();
         var expectedChecksum = firstBlock.Slice(KeyIvSize + EncryptedKeysSize + EncryptedDataSize, HashSize);
 
@@ -120,11 +120,11 @@ internal static class CitrusDecryptor
         {
             try
             {
-                var (dataKey, dataIv) = DecryptInnerKeys(encryptedKeys, steamId, curve);
-                var candidateData = encryptedData.ToArray();
-                AesDecryptInPlace(candidateData, dataKey, dataIv);
+                var (dataKey, dataIv) = DecryptInnerKeys(keyBlob, steamId, curve);
+                var decryptedBlock = encryptedData.ToArray();
+                AesDecryptInPlace(decryptedBlock, dataKey, dataIv);
 
-                var actualChecksum = CalculateChecksum(outerKey, outerIv, encryptedKeys, candidateData);
+                var actualChecksum = CalculateChecksum(outerKey, outerIv, keyBlob, decryptedBlock);
                 if (actualChecksum.AsSpan().SequenceEqual(expectedChecksum))
                 {
                     return curve;
@@ -188,6 +188,8 @@ internal static class CitrusDecryptor
         var plaintext = decryptor.TransformFinalBlock(buffer, 0, buffer.Length);
         Buffer.BlockCopy(plaintext, 0, buffer, 0, plaintext.Length);
 
+        // Citrus applies an extra per-block XOR patch (key ^ iv) after AES-CBC decryption.
+        // Community tooling uses the same transform, so this is intentional rather than standard CBC behavior.
         var patch = new byte[16];
         for (var index = 0; index < patch.Length; index++)
         {
@@ -214,6 +216,7 @@ internal static class CitrusDecryptor
         offset += outerIv.Length;
         Buffer.BlockCopy(decryptedKeyBlob, 0, buffer, offset, decryptedKeyBlob.Length);
         offset += decryptedKeyBlob.Length;
+        // Citrus validates the first 0x3FFE0 bytes of the decrypted block, not the ciphertext.
         Buffer.BlockCopy(plaintextBlock, 0, buffer, offset, ChecksumDataSize);
 
         return SHA3_256.HashData(buffer);
